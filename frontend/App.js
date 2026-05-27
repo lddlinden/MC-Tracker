@@ -57,19 +57,41 @@ function App() {
   useEffect(() => {
     fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
       .then(res => {
-        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        if (!res.ok) {
+          if (res.status === 401) {
+            localStorage.removeItem('mc_token');
+            setToken(null);
+            throw new Error('Token expired or invalid');
+          }
+          throw new Error(`API error: ${res.status}`);
+        }
         return res.json();
       })
       .then(data => {
-        setPositions(data);
-        if (data.length > 0) setSelectedPoint(data[data.length - 1]);
+        if (Array.isArray(data)) {
+          setPositions(data);
+          if (data.length > 0) setSelectedPoint(data[data.length - 1]);
+        } else {
+          setPositions([]);
+        }
       })
-      .catch(err => console.error('Failed to load history:', err));
+      .catch(err => {
+        console.error('Failed to load history:', err);
+        setPositions([]);
+      });
 
     fetch('/api/stats/distance?days=7')
-      .then(res => res.json())
-      .then(data => setStats(data));
-  }, []);
+      .then(res => {
+        if (!res.ok) throw new Error(`Stats API error: ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        if (data && typeof data === 'object') {
+          setStats(data);
+        }
+      })
+      .catch(err => console.error('Failed to load stats:', err));
+  }, [token]);
 
   // Socket.io lyssnare för realtidsuppdateringar
   useEffect(() => {
