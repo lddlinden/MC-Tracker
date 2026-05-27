@@ -16,8 +16,8 @@ const io = new Server(server, {
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
-const initDb = async () => {
-  await pool.query(`
+const initDb = async (delayMs = 3000) => {
+  const createSql = `
     CREATE TABLE IF NOT EXISTS positions (
       id SERIAL PRIMARY KEY,
       ts TIMESTAMP WITH TIME ZONE,
@@ -25,7 +25,18 @@ const initDb = async () => {
       lng FLOAT,
       raw_data JSONB
     );
-  `);
+  `;
+
+  while (true) {
+    try {
+      await pool.query(createSql);
+      console.log('Database ready and table ensured');
+      return;
+    } catch (err) {
+      console.log(`Database not ready, retrying in ${delayMs}ms: ${err.message}`);
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
 };
 initDb();
 
