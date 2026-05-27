@@ -1,0 +1,36 @@
+version: '3.8'
+services:
+  db:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mc_nav
+    ports:
+      - "5432:5432"
+  mqtt:
+    image: eclipse-mosquitto:latest
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://user:password@db:5432/mc_nav
+      JWT_SECRET: din_hemlighet_har
+      MQTT_URL: mqtt://mqtt:1883
+    ports:
+      - "3001:3001"
+    depends_on:
+      - db
+      - mqtt
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
