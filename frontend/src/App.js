@@ -27,6 +27,7 @@ function App() {
   const [stats, setStats] = useState({ total_distance: 0 });
   const [selectedPoint, setSelectedPoint] = useState(null);
 
+  // Login handler (can be used in login form)
   const handleLogin = async (e) => {
     e.preventDefault();
     const res = await fetch('/api/login', {
@@ -41,18 +42,36 @@ function App() {
     } else { alert('Fel inloggning'); }
   };
 
-  if (!token) {
-    return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#1a1a2e' }}>
-        <form onSubmit={handleLogin} style={{ background: '#fff', padding: '40px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          <h2>MC-NAV Login</h2>
-          <input name="user" placeholder="Användarnamn" style={{ padding: '10px' }} />
-          <input name="pass" type="password" placeholder="Lösenord" style={{ padding: '10px' }} />
-          <button type="submit" style={{ padding: '10px', background: '#0f3460', color: '#fff', border: 'none', cursor: 'pointer' }}>Logga in</button>
-        </form>
-      </div>
-    );
-  }
+  // EFFECTS: Hooks must be called unconditionally — guard inside each effect
+  useEffect(() => {
+    if (!token) return;
+    fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => {
+        setPositions(data);
+        if (data.length > 0) setSelectedPoint(data[data.length - 1]);
+      })
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    fetch('/api/stats/distance?days=7')
+      .then(res => res.json())
+      .then(data => setStats(data))
+      .catch(() => {});
+  }, []);
+
+  // Socket.io listener for realtime updates
+  useEffect(() => {
+    const socket = io(window.location.origin);
+
+    socket.on('position-update', (newPos) => {
+      setPositions(prev => [...prev, newPos]);
+      setSelectedPoint(newPos);
+    });
+
+    return () => socket.disconnect();
+  }, []);
 
   useEffect(() => {
     fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
