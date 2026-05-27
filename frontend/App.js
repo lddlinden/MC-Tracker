@@ -56,11 +56,15 @@ function App() {
 
   useEffect(() => {
     fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         setPositions(data);
         if (data.length > 0) setSelectedPoint(data[data.length - 1]);
-      });
+      })
+      .catch(err => console.error('Failed to load history:', err));
 
     fetch('/api/stats/distance?days=7')
       .then(res => res.json())

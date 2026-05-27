@@ -76,11 +76,11 @@ app.post('/api/login', (req, res) => {
 
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).send('Saknar token');
+  if (!token) return res.status(401).json({ error: 'Saknar token' });
   try {
     jwt.verify(token, JWT_SECRET);
     next();
-  } catch { res.status(401).send('Ogiltig token'); }
+  } catch { res.status(401).json({ error: 'Ogiltig token' }); }
 };
 
 app.get('/api/history', authenticate, async (req, res) => {
