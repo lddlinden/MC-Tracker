@@ -22,24 +22,49 @@ function RecenterMap({ coords }) {
 }
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('mc_token'));
+  const [token, setToken] = useState(null);
   const [positions, setPositions] = useState([]);
   const [stats, setStats] = useState({ total_distance: 0 });
   const [selectedPoint, setSelectedPoint] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Check for saved token on mount
+  useEffect(() => {
+    const savedToken = localStorage.getItem('mc_token');
+    if (savedToken) {
+      setToken(savedToken);
+    }
+    setLoading(false);
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    const res = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: e.target.user.value, password: e.target.pass.value })
-    });
-    const data = await res.json();
-    if (data.token) {
-      localStorage.setItem('mc_token', data.token);
-      setToken(data.token);
-    } else { alert('Fel inloggning'); }
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: e.target.user.value, password: e.target.pass.value })
+      });
+      const data = await res.json();
+      if (data.token) {
+        localStorage.setItem('mc_token', data.token);
+        setToken(data.token);
+      } else { 
+        alert('Fel inloggning'); 
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      alert('Inloggningsfel');
+    }
   };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#1a1a2e' }}>
+        <div style={{ color: '#fff' }}>Laddar...</div>
+      </div>
+    );
+  }
 
   if (!token) {
     return (
@@ -54,43 +79,51 @@ function App() {
     );
   }
 
+  // Load data once we have a valid token
   useEffect(() => {
-    fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => {
+    const loadData = async () => {
+      try {
+        const res = await fetch('/api/history?start=2023-01-01&end=2025-01-01', { 
+          headers: { Authorization: `Bearer ${token}` } 
+        });
+        
+        if (res.status === 401) {
+          localStorage.removeItem('mc_token');
+          setToken(null);
+          console.warn('Token invalid, clearing and showing login');
+          return;
+        }
+        
         if (!res.ok) {
-          if (res.status === 401) {
-            localStorage.removeItem('mc_token');
-            setToken(null);
-            throw new Error('Token expired or invalid');
-          }
           throw new Error(`API error: ${res.status}`);
         }
-        return res.json();
-      })
-      .then(data => {
+        
+        const data = await res.json();
         if (Array.isArray(data)) {
           setPositions(data);
           if (data.length > 0) setSelectedPoint(data[data.length - 1]);
-        } else {
-          setPositions([]);
         }
-      })
-      .catch(err => {
+      } catch (err) {
         console.error('Failed to load history:', err);
         setPositions([]);
-      });
+      }
+    };
 
-    fetch('/api/stats/distance?days=7')
-      .then(res => {
+    const loadStats = async () => {
+      try {
+        const res = await fetch('/api/stats/distance?days=7');
         if (!res.ok) throw new Error(`Stats API error: ${res.status}`);
-        return res.json();
-      })
-      .then(data => {
+        const data = await res.json();
         if (data && typeof data === 'object') {
           setStats(data);
         }
-      })
-      .catch(err => console.error('Failed to load stats:', err));
+      } catch (err) {
+        console.error('Failed to load stats:', err);
+      }
+    };
+
+    loadData();
+    loadStats();
   }, [token]);
 
   // Socket.io lyssnare för realtidsuppdateringar
