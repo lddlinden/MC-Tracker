@@ -81,13 +81,17 @@ mqttClient.on('message', async (topic, message) => {
       return;
     }
 
-    await pool.query(
-      'INSERT INTO positions (ts, lat, lng, raw_data) VALUES ($1, $2, $3, $4)',
-      [tsDate, lat, lng, data]
-    );
+    try {
+      await pool.query(
+        'INSERT INTO positions (ts, lat, lng, raw_data) VALUES ($1, $2, $3, $4)',
+        [tsDate, lat, lng, data]
+      );
+      console.log(`Position sparad: ${lat}, ${lng} (Tid: ${tsDate.toISOString()})`);
+      io.emit('position-update', { ts: tsDate.toISOString(), lat, lng, raw_data: data });
+    } catch (dbErr) {
+      console.error("[Database] Fel vid INSERT:", dbErr.message);
+    }
 
-    io.emit('position-update', { ts: tsDate.toISOString(), lat, lng, raw_data: data });
-    console.log("Position sparad:", lat, lng);
   } catch (err) {
     console.error("KRITISKT FEL i MQTT-hanterare:", err.message);
   }
@@ -113,9 +117,11 @@ const authenticate = (req, res, next) => {
 
 app.get('/api/history', authenticate, async (req, res) => {
   const { start, end } = req.query;
+  // Lägg till tid för att inkludera hela slutdagen (t.ex. 2026-05-28 23:59:59)
+  const adjustedEnd = end.includes('T') ? end : `${end} 23:59:59`;
   const result = await pool.query(
     'SELECT * FROM positions WHERE ts BETWEEN $1 AND $2 ORDER BY ts ASC',
-    [start, end]
+    [start, adjustedEnd]
   );
   res.json(result.rows);
 });
