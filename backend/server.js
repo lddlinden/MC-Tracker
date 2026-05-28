@@ -186,7 +186,7 @@ app.get('/api/history', authenticate, async (req, res) => {
   res.json(result.rows);
 });
 
-app.get('/api/stats/distance', async (req, res) => {
+app.get('/api/stats/distance', authenticate, async (req, res) => {
   const { days } = req.query;
   const query = `SELECT SUM(dist) as total_distance FROM (SELECT ST_DistanceSphere(ST_MakePoint(lng, lat), LAG(ST_MakePoint(lng, lat)) OVER (ORDER BY ts)) as dist FROM positions WHERE ts > NOW() - interval '${days} days') sub;`;
   const result = await pool.query(query);

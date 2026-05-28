@@ -264,7 +264,7 @@ function App() {
         </div>
         
         {/* Byt Lösenord Sektion */}
-        <div style={{ marginBottom: '20px' }}>
+        <div style={{ marginBottom: '20px', paddingBottom: '10px', borderBottom: '1px solid #30304d' }}>
           <button 
             onClick={() => setShowPasswordChange(!showPasswordChange)}
             style={{ background: 'none', border: '1px solid #30304d', color: '#94a3b8', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}
