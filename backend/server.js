@@ -2,6 +2,7 @@ const mqtt = require('mqtt');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const fetch = require('node-fetch'); // Importera node-fetch
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -85,6 +86,63 @@ const authenticate = (req, res, next) => {
   } catch { res.status(401).json({ error: 'Ogiltig token' }); }
 };
 
+// In-memory state för att spåra aktiva händelser per enhet och undvika dubbla aviseringar
+const deviceEventStates = {}; // Format: { 'topic': { '247': 0, '248': 0 } }
+
+const sendNotification = async (eventType, topic, reportedData) => {
+  const HOME_ASSISTANT_WEBHOOK_URL = process.env.HOME_ASSISTANT_WEBHOOK_URL;
+  const TEXTBEE_API_KEY = process.env.TEXTBEE_API_KEY;
+  const TEXTBEE_CHANNEL_ID = process.env.TEXTBEE_CHANNEL_ID;
+
+  const message = `MC Tracker Alert: ${eventType.toUpperCase()} detected on ${topic} at ${new Date(reportedData.ts).toLocaleString()}! Lat: ${reportedData.latlng.split(',')[0]}, Lng: ${reportedData.latlng.split(',')[1]}`;
+
+  // Home Assistant Webhook
+  if (HOME_ASSISTANT_WEBHOOK_URL) {
+    try {
+      await fetch(HOME_ASSISTANT_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_type: `mc_tracker_${eventType}_alert`,
+          data: {
+            topic: topic,
+            event: eventType,
+            timestamp: reportedData.ts,
+            latitude: reportedData.latlng.split(',')[0],
+            longitude: reportedData.latlng.split(',')[1],
+            message: message
+          }
+        })
+      });
+      console.log(`[Notification] Home Assistant webhook skickad för ${eventType}.`);
+    } catch (error) {
+      console.error(`[Notification] Misslyckades skicka Home Assistant webhook för ${eventType}:`, error.message);
+    }
+  }
+
+  // Textbee.dev Notification
+  if (TEXTBEE_API_KEY && TEXTBEE_CHANNEL_ID) {
+    try {
+      await fetch(`https://textbee.dev/api/v1/message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': TEXTBEE_API_KEY
+        },
+        body: JSON.stringify({
+          channel_id: TEXTBEE_CHANNEL_ID,
+          message: message,
+          title: `MC Tracker ${eventType.toUpperCase()}!`,
+          priority: 1 // Hög prioritet
+        })
+      });
+      console.log(`[Notification] Textbee.dev avisering skickad för ${eventType}.`);
+    } catch (error) {
+      console.error(`[Notification] Misslyckades skicka Textbee.dev avisering för ${eventType}:`, error.message);
+    }
+  }
+};
+
 const mqttClient = mqtt.connect(process.env.MQTT_URL || 'mqtt://mqtt:1883');
 
 mqttClient.on('error', (err) => {
@@ -125,6 +183,34 @@ mqttClient.on('message', async (topic, message) => {
       console.error("[Parser] Fel: Ogiltig timestamp:", timestampValue);
       return;
     }
+
+    // --- Händelsedetektering för aviseringar ---
+    const crashDetection = reported['247']; // Antar att 247 är I/O-ID för Crash Detection
+    const towingDetection = reported['248']; // Antar att 248 är I/O-ID för Towing Detection
+
+    // Initiera tillstånd för denna topic om det inte finns
+    if (!deviceEventStates[topic]) {
+      deviceEventStates[topic] = { '247': 0, '248': 0 };
+    }
+
+    // Kontrollera Crash Detection
+    if (crashDetection === 1 && deviceEventStates[topic]['247'] !== 1) {
+      console.log(`[Event] Crash Detected för ${topic}!`);
+      sendNotification('crash', topic, reported);
+      deviceEventStates[topic]['247'] = 1; // Uppdatera tillstånd
+    } else if (crashDetection === 0 && deviceEventStates[topic]['247'] === 1) {
+      deviceEventStates[topic]['247'] = 0; // Återställ tillstånd när händelsen upphör
+    }
+
+    // Kontrollera Towing Detection
+    if (towingDetection === 1 && deviceEventStates[topic]['248'] !== 1) {
+      console.log(`[Event] Towing Detected för ${topic}!`);
+      sendNotification('towing', topic, reported);
+      deviceEventStates[topic]['248'] = 1; // Uppdatera tillstånd
+    } else if (towingDetection === 0 && deviceEventStates[topic]['248'] === 1) {
+      deviceEventStates[topic]['248'] = 0; // Återställ tillstånd när händelsen upphör
+    }
+    // --- Slut på händelsedetektering ---
 
     try {
       await pool.query(
