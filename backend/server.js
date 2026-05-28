@@ -42,29 +42,54 @@ initDb();
 
 const mqttClient = mqtt.connect(process.env.MQTT_URL || 'mqtt://mqtt:1883');
 
+mqttClient.on('error', (err) => {
+  console.error('[MQTT] Anslutningsfel:', err.message);
+});
+
+mqttClient.on('reconnect', () => {
+  console.log('[MQTT] Försöker ansluta igen...');
+});
+
 mqttClient.on('connect', () => {
   mqttClient.subscribe('/teltonika/fmc880');
-  console.log('Prenumererar på topic: /teltonika/fmc880');
+  console.log('[MQTT] Ansluten! Prenumererar på: /teltonika/fmc880');
 });
 
 mqttClient.on('message', async (topic, message) => {
-  try {
-    const data = JSON.parse(message.toString());
-    console.log("Mottagen data:", JSON.stringify(data, null, 2));
+  const rawPayload = message.toString();
+  console.log(`[MQTT] Nytt råmeddelande på ${topic}: ${rawPayload}`);
 
-    const reported = data.state.reported;
+  try {
+    const data = JSON.parse(rawPayload);
+
+    // Försök hitta positionen i JSON-strukturen
+    // Vi kollar både efter 'state.reported' (AWS format) och direkt i roten (Teltonika/Generic format)
+    const reported = data.state?.reported || data; 
+    
+    if (!reported || !reported.latlng) {
+      console.error("[Parser] Fel: Hittade ingen 'latlng' (t.ex. \"56.8,14.8\") i JSON-objektet");
+      return;
+    }
+
     const [lat, lng] = reported.latlng.split(',').map(Number);
-    const ts = new Date(reported.ts).toISOString();
+    
+    // Hantera både numeriska timestamps och strängar
+    const timestampValue = reported.ts;
+    const tsDate = new Date(timestampValue);
+    if (isNaN(tsDate.getTime())) {
+      console.error("[Parser] Fel: Ogiltig timestamp:", timestampValue);
+      return;
+    }
 
     await pool.query(
-      'INSERT INTO positions (ts, lat, lng, raw_data) VALUES (to_timestamp($1/1000.0), $2, $3, $4)',
-      [reported.ts, lat, lng, data]
+      'INSERT INTO positions (ts, lat, lng, raw_data) VALUES ($1, $2, $3, $4)',
+      [tsDate, lat, lng, data]
     );
 
-    io.emit('position-update', { ts, lat, lng, raw_data: data });
+    io.emit('position-update', { ts: tsDate.toISOString(), lat, lng, raw_data: data });
     console.log("Position sparad:", lat, lng);
   } catch (err) {
-    console.error("Fel vid lagring av MQTT data:", err);
+    console.error("KRITISKT FEL i MQTT-hanterare:", err.message);
   }
 });
 
