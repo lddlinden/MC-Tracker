@@ -45,7 +45,7 @@ function App() {
   // EFFECTS: Hooks must be called unconditionally — guard inside each effect
   useEffect(() => {
     if (!token) return;
-    fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
+    fetch('/api/history?start=2023-01-01&end=2030-01-01', { headers: { Authorization: `Bearer ${token}` } })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();

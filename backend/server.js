@@ -51,8 +51,8 @@ mqttClient.on('reconnect', () => {
 });
 
 mqttClient.on('connect', () => {
-  mqttClient.subscribe('/teltonika/fmc880');
-  console.log('[MQTT] Ansluten! Prenumererar på: /teltonika/fmc880');
+  mqttClient.subscribe('teltonika/fmc880');
+  console.log('[MQTT] Ansluten! Prenumererar på: teltonika/fmc880');
 });
 
 mqttClient.on('message', async (topic, message) => {
