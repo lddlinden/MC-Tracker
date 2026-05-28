@@ -4,9 +4,18 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 app.use(express.json());
+
+// Begränsa inloggningsförsök (max 5 per 15 minuter per IP)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'För många inloggningsförsök, försök igen senare.' }
+});
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -16,7 +25,7 @@ const io = new Server(server, {
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
-const initDb = async (delayMs = 3000) => {
+const initDb = async (delayMs = 2000) => {
   const createSql = `
     CREATE TABLE IF NOT EXISTS positions (
       id SERIAL PRIMARY KEY,
@@ -25,11 +34,37 @@ const initDb = async (delayMs = 3000) => {
       lng FLOAT,
       raw_data JSONB
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE,
+      password_hash TEXT
+    );
   `;
 
   while (true) {
     try {
       await pool.query(createSql);
+
+      // Skapa användare från .env om de inte finns
+      const initialUsers = [[process.env.ADMIN_USER || 'admin', process.env.ADMIN_PASS || 'mc-pass']];
+      
+      // Lägg till extra användare från formatet "user1:pass1,user2:pass2"
+      if (process.env.EXTRA_USERS) {
+        process.env.EXTRA_USERS.split(',').forEach(pair => {
+          initialUsers.push(pair.split(':'));
+        });
+      }
+
+      for (const [username, password] of initialUsers) {
+        const userExists = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
+        if (userExists.rows.length === 0) {
+          const hash = await bcrypt.hash(password, 10);
+          await pool.query('INSERT INTO users (username, password_hash) VALUES ($1, $2)', [username, hash]);
+          console.log(`Användare skapad vid init: ${username}`);
+        }
+      }
+
       console.log('Database ready and table ensured');
       return;
     } catch (err) {
@@ -97,20 +132,45 @@ mqttClient.on('message', async (topic, message) => {
   }
 });
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
-  if (username === 'admin' && password === 'mc-pass') {
-    const token = jwt.sign({ user: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
-    return res.json({ token });
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Fel användarnamn eller lösenord' });
+    }
+
+    const user = result.rows[0];
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+
+    if (isMatch) {
+      const token = jwt.sign({ user: user.username, id: user.id }, JWT_SECRET, { expiresIn: '24h' });
+      return res.json({ token });
+    }
+    res.status(401).json({ error: 'Fel användarnamn eller lösenord' });
+  } catch (err) {
+    res.status(500).json({ error: 'Serverfel vid inloggning' });
   }
-  res.status(401).json({ error: 'Fel användarnamn eller lösenord' });
+});
+
+app.post('/api/update-password', authenticate, async (req, res) => {
+  const { newPassword } = req.body;
+  const userId = req.user_id; // Vi behöver uppdatera authenticate för att sätta detta
+  try {
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
+    res.json({ message: 'Lösenordet har uppdaterats' });
+  } catch (err) {
+    res.status(500).json({ error: 'Kunde inte uppdatera lösenordet' });
+  }
 });
 
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'Saknar token' });
   try {
-    jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user_id = decoded.id;
     next();
   } catch { res.status(401).json({ error: 'Ogiltig token' }); }
 };

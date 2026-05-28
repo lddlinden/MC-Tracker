@@ -24,10 +24,8 @@ services:
 
   backend:
     build: ./backend
-    environment:
-      DATABASE_URL: postgresql://user:password@db:5432/mc_nav
-      JWT_SECRET: din_hemlighet_har
-      MQTT_URL: mqtt://mqtt:1883
+    env_file:
+      - .env
     ports:
       - "3001:3001"
     depends_on:

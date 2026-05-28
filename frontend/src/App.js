@@ -134,7 +134,7 @@ function App() {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'Inter, system-ui, sans-serif', backgroundColor: '#f4f4f9' }}>
         <div style={{ background: '#fff', padding: '40px', borderRadius: '10px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', width: '100%', maxWidth: '400px' }}>
-          <h1 style={{ fontSize: '1.8rem', marginBottom: '30px', textAlign: 'center', color: '#1a1a2e' }}>🏍️ MC-NAV</h1>
+          <h1 style={{ fontSize: '1.8rem', marginBottom: '30px', textAlign: 'center', color: '#1a1a2e' }}>Tracker</h1>
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#1a1a2e' }}>
@@ -143,7 +143,7 @@ function App() {
               <input
                 type="text"
                 name="user"
-                placeholder="admin"
+                placeholder="användare"
                 required
                 style={{
                   width: '100%',
@@ -196,9 +196,6 @@ function App() {
               Logga in
             </button>
           </form>
-          <p style={{ marginTop: '20px', fontSize: '0.9rem', color: '#666', textAlign: 'center' }}>
-            Demo: admin / mc-pass
-          </p>
         </div>
       </div>
     );
@@ -225,7 +222,7 @@ function App() {
         boxSizing: 'border-box'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '10px', borderBottom: '1px solid #30304d' }}>
-          <h1 style={{ fontSize: '1.5rem', margin: 0 }}>🏍️ MC-NAV Dashboard</h1>
+          <h1 style={{ fontSize: '1.5rem', margin: 0 }}>Tracker Dashboard</h1>
           <button
             onClick={handleLogout}
             style={{
