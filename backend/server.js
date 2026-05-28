@@ -43,12 +43,15 @@ initDb();
 const mqttClient = mqtt.connect(process.env.MQTT_URL || 'mqtt://mqtt:1883');
 
 mqttClient.on('connect', () => {
-  mqttClient.subscribe('tracker/data');
+  mqttClient.subscribe('/teltonika/fmc880');
+  console.log('Prenumererar på topic: /teltonika/fmc880');
 });
 
 mqttClient.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
+    console.log("Mottagen data:", JSON.stringify(data, null, 2));
+
     const reported = data.state.reported;
     const [lat, lng] = reported.latlng.split(',').map(Number);
     const ts = new Date(reported.ts).toISOString();
