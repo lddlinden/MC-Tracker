@@ -27,6 +27,14 @@ function App() {
   const [stats, setStats] = useState({ total_distance: 0 });
   const [selectedPoint, setSelectedPoint] = useState(null);
 
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -197,9 +205,25 @@ function App() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter, system-ui, sans-serif', backgroundColor: '#f4f4f9' }}>
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: isMobile ? 'column' : 'row',
+      height: '100vh', 
+      fontFamily: 'Inter, system-ui, sans-serif', 
+      backgroundColor: '#f4f4f9' 
+    }}>
       {/* Sidebar för statistik och JSON-data */}
-      <div style={{ width: '400px', backgroundColor: '#1a1a2e', color: '#fff', padding: '20px', overflowY: 'auto', boxShadow: '4px 0 10px rgba(0,0,0,0.1)', zIndex: 1000 }}>
+      <div style={{ 
+        width: isMobile ? '100%' : '400px', 
+        height: isMobile ? '40%' : '100vh',
+        backgroundColor: '#1a1a2e', 
+        color: '#fff', 
+        padding: '20px', 
+        overflowY: 'auto', 
+        boxShadow: isMobile ? '0 4px 10px rgba(0,0,0,0.3)' : '4px 0 10px rgba(0,0,0,0.1)', 
+        zIndex: 1000,
+        boxSizing: 'border-box'
+      }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '10px', borderBottom: '1px solid #30304d' }}>
           <h1 style={{ fontSize: '1.5rem', margin: 0 }}>🏍️ MC-NAV Dashboard</h1>
           <button
@@ -284,7 +308,7 @@ function App() {
       </div>
 
       {/* Kartvy */}
-      <div style={{ flexGrow: 1, position: 'relative' }}>
+      <div style={{ flexGrow: 1, position: 'relative', height: isMobile ? '60%' : '100%' }}>
         <MapContainer center={latestPos} zoom={13} style={{ height: '100%', width: '100%' }}>
           <TileLayer 
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
