@@ -46,49 +46,43 @@ function App() {
   useEffect(() => {
     if (!token) return;
     fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.json())
-      .then(data => {
-        setPositions(data);
-        if (data.length > 0) setSelectedPoint(data[data.length - 1]);
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
       })
-      .catch(() => {});
+      .then(data => {
+        if (Array.isArray(data)) {
+          setPositions(data);
+          if (data.length > 0) setSelectedPoint(data[data.length - 1]);
+        } else {
+          console.error('History data is not an array:', data);
+          setPositions([]);
+        }
+      })
+      .catch(err => console.error('Failed to fetch history:', err));
   }, [token]);
 
   useEffect(() => {
     fetch('/api/stats/distance?days=7')
-      .then(res => res.json())
-      .then(data => setStats(data))
-      .catch(() => {});
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => setStats(data || { total_distance: 0 }))
+      .catch(err => console.error('Failed to fetch stats:', err));
   }, []);
 
   // Socket.io listener for realtime updates
   useEffect(() => {
-    const socket = io(window.location.origin);
-
-    socket.on('position-update', (newPos) => {
-      setPositions(prev => [...prev, newPos]);
-      setSelectedPoint(newPos);
+    const socket = io(window.location.origin, {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5
     });
 
-    return () => socket.disconnect();
-  }, []);
-
-  useEffect(() => {
-    fetch('/api/history?start=2023-01-01&end=2025-01-01', { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.json())
-      .then(data => {
-        setPositions(data);
-        if (data.length > 0) setSelectedPoint(data[data.length - 1]);
-      });
-
-    fetch('/api/stats/distance?days=7')
-      .then(res => res.json())
-      .then(data => setStats(data));
-  }, []);
-
-  // Socket.io lyssnare för realtidsuppdateringar
-  useEffect(() => {
-    const socket = io(window.location.origin);
+    socket.on('connect', () => console.log('Socket.io connected'));
+    socket.on('connect_error', (error) => console.error('Socket.io connection error:', error));
 
     socket.on('position-update', (newPos) => {
       setPositions(prev => [...prev, newPos]);
@@ -101,11 +95,109 @@ function App() {
   const polylineCoords = positions.map(p => [p.lat, p.lng]);
   const latestPos = positions.length > 0 ? [positions[positions.length - 1].lat, positions[positions.length - 1].lng] : [56.8, 14.8];
 
+  const handleLogout = () => {
+    localStorage.removeItem('mc_token');
+    setToken(null);
+  };
+
+  if (!token) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'Inter, system-ui, sans-serif', backgroundColor: '#f4f4f9' }}>
+        <div style={{ background: '#fff', padding: '40px', borderRadius: '10px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', width: '100%', maxWidth: '400px' }}>
+          <h1 style={{ fontSize: '1.8rem', marginBottom: '30px', textAlign: 'center', color: '#1a1a2e' }}>🏍️ MC-NAV</h1>
+          <form onSubmit={handleLogin}>
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#1a1a2e' }}>
+                Användarnamn
+              </label>
+              <input
+                type="text"
+                name="user"
+                placeholder="admin"
+                required
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #e0e0e0',
+                  borderRadius: '6px',
+                  fontSize: '1rem',
+                  boxSizing: 'border-box',
+                  fontFamily: 'inherit'
+                }}
+              />
+            </div>
+            <div style={{ marginBottom: '30px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#1a1a2e' }}>
+                Lösenord
+              </label>
+              <input
+                type="password"
+                name="pass"
+                placeholder="••••••••"
+                required
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #e0e0e0',
+                  borderRadius: '6px',
+                  fontSize: '1rem',
+                  boxSizing: 'border-box',
+                  fontFamily: 'inherit'
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                padding: '12px',
+                background: '#0f3460',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: '1rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'background 0.3s ease'
+              }}
+              onMouseEnter={(e) => e.target.style.background = '#16213e'}
+              onMouseLeave={(e) => e.target.style.background = '#0f3460'}
+            >
+              Logga in
+            </button>
+          </form>
+          <p style={{ marginTop: '20px', fontSize: '0.9rem', color: '#666', textAlign: 'center' }}>
+            Demo: admin / mc-pass
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter, system-ui, sans-serif', backgroundColor: '#f4f4f9' }}>
       {/* Sidebar för statistik och JSON-data */}
       <div style={{ width: '400px', backgroundColor: '#1a1a2e', color: '#fff', padding: '20px', overflowY: 'auto', boxShadow: '4px 0 10px rgba(0,0,0,0.1)', zIndex: 1000 }}>
-        <h1 style={{ fontSize: '1.5rem', marginBottom: '20px', borderBottom: '1px solid #30304d', paddingBottom: '10px' }}>🏍️ MC-NAV Dashboard</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '10px', borderBottom: '1px solid #30304d' }}>
+          <h1 style={{ fontSize: '1.5rem', margin: 0 }}>🏍️ MC-NAV Dashboard</h1>
+          <button
+            onClick={handleLogout}
+            style={{
+              background: '#e63946',
+              color: '#fff',
+              border: 'none',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              fontWeight: '600'
+            }}
+            onMouseEnter={(e) => e.target.style.background = '#d62828'}
+            onMouseLeave={(e) => e.target.style.background = '#e63946'}
+          >
+            Logga ut
+          </button>
+        </div>
         
         {/* Statistik-kort */}
         <div style={{ display: 'grid', gap: '15px', marginBottom: '30px' }}>
