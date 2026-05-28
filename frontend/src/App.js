@@ -26,6 +26,9 @@ function App() {
   const [positions, setPositions] = useState([]);
   const [stats, setStats] = useState({ total_distance: 0 });
   const [selectedPoint, setSelectedPoint] = useState(null);
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordStatus, setPasswordStatus] = useState('');
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -72,6 +75,23 @@ function App() {
     } else { alert('Fel inloggning'); }
   };
 
+  const handlePasswordUpdate = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/update-password', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ newPassword })
+      });
+      const data = await res.json();
+      setPasswordStatus(data.message || data.error);
+      if (res.ok) { setNewPassword(''); setTimeout(() => setShowPasswordChange(false), 2000); }
+    } catch (err) { setPasswordStatus('Kunde inte uppdatera lösenord'); }
+  };
+
   // EFFECTS: Hooks must be called unconditionally — guard inside each effect
   useEffect(() => {
     if (!token) return;
@@ -93,14 +113,15 @@ function App() {
   }, [token, startDate, endDate]);
 
   useEffect(() => {
-    fetch('/api/stats/distance?days=7')
+    if (!token) return;
+    fetch('/api/stats/distance?days=7', { headers: { Authorization: `Bearer ${token}` } })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
       .then(data => setStats(data || { total_distance: 0 }))
       .catch(err => console.error('Failed to fetch stats:', err));
-  }, []);
+  }, [token]);
 
   // Socket.io listener for realtime updates
   useEffect(() => {
@@ -242,6 +263,31 @@ function App() {
           </button>
         </div>
         
+        {/* Byt Lösenord Sektion */}
+        <div style={{ marginBottom: '20px' }}>
+          <button 
+            onClick={() => setShowPasswordChange(!showPasswordChange)}
+            style={{ background: 'none', border: '1px solid #30304d', color: '#94a3b8', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}
+          >
+            {showPasswordChange ? 'Avbryt lösenordsbyte' : 'Byt lösenord'}
+          </button>
+          
+          {showPasswordChange && (
+            <form onSubmit={handlePasswordUpdate} style={{ marginTop: '10px', display: 'flex', gap: '5px' }}>
+              <input 
+                type="password" 
+                value={newPassword} 
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Nytt lösenord"
+                style={{ padding: '5px', borderRadius: '4px', border: 'none', flexGrow: 1 }}
+                required
+              />
+              <button type="submit" style={{ background: '#4cc9f0', border: 'none', borderRadius: '4px', cursor: 'pointer', padding: '5px 10px' }}>Spara</button>
+            </form>
+          )}
+          {passwordStatus && <div style={{ fontSize: '0.7rem', marginTop: '5px', color: '#4cc9f0' }}>{passwordStatus}</div>}
+        </div>
+
         {/* Statistik-kort */}
         <div style={{ display: 'grid', gap: '15px', marginBottom: '30px' }}>
           <div style={{ background: '#16213e', padding: '15px', borderRadius: '10px' }}>
