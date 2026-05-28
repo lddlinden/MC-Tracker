@@ -75,6 +75,16 @@ const initDb = async (delayMs = 2000) => {
 };
 initDb();
 
+const authenticate = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Saknar token' });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user_id = decoded.id;
+    next();
+  } catch { res.status(401).json({ error: 'Ogiltig token' }); }
+};
+
 const mqttClient = mqtt.connect(process.env.MQTT_URL || 'mqtt://mqtt:1883');
 
 mqttClient.on('error', (err) => {
@@ -164,16 +174,6 @@ app.post('/api/update-password', authenticate, async (req, res) => {
     res.status(500).json({ error: 'Kunde inte uppdatera lösenordet' });
   }
 });
-
-const authenticate = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Saknar token' });
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user_id = decoded.id;
-    next();
-  } catch { res.status(401).json({ error: 'Ogiltig token' }); }
-};
 
 app.get('/api/history', authenticate, async (req, res) => {
   const { start, end } = req.query;
