@@ -27,6 +27,28 @@ function App() {
   const [stats, setStats] = useState({ total_distance: 0 });
   const [selectedPoint, setSelectedPoint] = useState(null);
 
+  const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const [visibleFields, setVisibleFields] = useState(['66', '67', '239', '240', 'sp']);
+
+  const fieldLabels = {
+    '66': 'MC Batteri (V)',
+    '67': 'Internt Batteri (V)',
+    '239': 'Tändning',
+    '240': 'Rörelse',
+    'sp': 'Hastighet (km/h)',
+    'sat': 'Satelliter',
+    'alt': 'Höjd (m)',
+    '241': 'GSM Signal'
+  };
+
+  const formatValue = (key, val) => {
+    if (key === '66' || key === '67') return (val / 1000).toFixed(2) + ' V';
+    if (key === '239' || key === '240') return val === 1 ? 'JA' : 'NEJ';
+    return val;
+  };
+
   // Login handler (can be used in login form)
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -45,7 +67,7 @@ function App() {
   // EFFECTS: Hooks must be called unconditionally — guard inside each effect
   useEffect(() => {
     if (!token) return;
-    fetch('/api/history?start=2023-01-01&end=2030-01-01', { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`/api/history?start=${startDate}&end=${endDate}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
@@ -60,7 +82,7 @@ function App() {
         }
       })
       .catch(err => console.error('Failed to fetch history:', err));
-  }, [token]);
+  }, [token, startDate, endDate]);
 
   useEffect(() => {
     fetch('/api/stats/distance?days=7')
@@ -207,6 +229,26 @@ function App() {
           </div>
         </div>
 
+        {/* Filter-sektion */}
+        <div style={{ background: '#16213e', padding: '15px', borderRadius: '10px', marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: 0 }}>FILTRERA HISTORIK</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ padding: '5px', borderRadius: '4px', border: 'none' }} />
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ padding: '5px', borderRadius: '4px', border: 'none' }} />
+          </div>
+          
+          <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', marginTop: '15px' }}>VISA DATA</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px', fontSize: '0.8rem' }}>
+            {Object.keys(fieldLabels).map(key => (
+              <label key={key} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                <input type="checkbox" checked={visibleFields.includes(key)} 
+                  onChange={() => setVisibleFields(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])} 
+                /> {fieldLabels[key]}
+              </label>
+            ))}
+          </div>
+        </div>
+
         {/* JSON Telemetri-vy */}
         {selectedPoint ? (
           <div>
@@ -216,12 +258,11 @@ function App() {
                 <strong>Tidpunkt:</strong> {new Date(selectedPoint.ts).toLocaleString('sv-SE')}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <div>📍 Lat: {selectedPoint.lat.toFixed(4)}</div>
-                <div>📍 Lng: {selectedPoint.lng.toFixed(4)}</div>
-                <div>🚀 Hastighet: {selectedPoint.raw_data.state.reported.sp} km/h</div>
-                <div>⛰️ Höjd: {selectedPoint.raw_data.state.reported.alt} m</div>
-                <div>🛰️ Satelliter: {selectedPoint.raw_data.state.reported.sat}</div>
-                <div>🔋 Event: {selectedPoint.raw_data.state.reported.evt}</div>
+                {visibleFields.map(key => (
+                  <div key={key}>
+                    {fieldLabels[key] || key}: {formatValue(key, selectedPoint.raw_data.state?.reported[key] || selectedPoint[key])}
+                  </div>
+                ))}
               </div>
               
               <h4 style={{ marginTop: '20px', color: '#94a3b8', fontSize: '0.8rem' }}>RÅDATA (JSON)</h4>
