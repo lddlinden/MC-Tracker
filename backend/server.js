@@ -2,7 +2,13 @@ const mqtt = require('mqtt');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const fetch = require('node-fetch'); // Importera node-fetch
+// Use global fetch if available (Node 18+). Otherwise dynamically import node-fetch.
+let fetcher;
+if (typeof fetch === 'function') {
+  fetcher = fetch;
+} else {
+  fetcher = (...args) => import('node-fetch').then(m => m.default(...args));
+}
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -105,7 +111,7 @@ const sendNotification = async (eventType, topic, reportedData, fullPayload) => 
   const webhookUrl = eventType === 'towing' ? HA_TOWING : (eventType === 'crash' ? HA_CRASH : HOME_ASSISTANT_WEBHOOK_URL);
   if (webhookUrl) {
     try {
-      await fetch(webhookUrl, {
+      await fetcher(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -131,7 +137,7 @@ const sendNotification = async (eventType, topic, reportedData, fullPayload) => 
   // Textbee.dev Notification (unchanged)
   if (TEXTBEE_API_KEY && TEXTBEE_CHANNEL_ID) {
     try {
-      await fetch(`https://textbee.dev/api/v1/message`, {
+      await fetcher(`https://textbee.dev/api/v1/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -288,4 +294,4 @@ app.get('/api/stats/distance', authenticate, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-server.listen(3001, () => console.log('Backend körs på port 3001'));
+server.listen(3001, '0.0.0.0', () => console.log('Backend körs på port 3001'));
