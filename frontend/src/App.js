@@ -125,24 +125,41 @@ function App() {
       .catch(err => console.error('Failed to fetch stats:', err));
   }, [token]);
 
-  // Socket.io listener for realtime updates
+  // Socket.io listener for realtime updates – FIX: Reconnect indefinitely and don't clear state
   useEffect(() => {
     const socket = io(window.location.origin, {
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5
+      reconnectionAttempts: Infinity, // ← Försök oändligt många gånger
+      reconnectionDelayMax: 10000 // ← Öka max väntetid
     });
 
-    socket.on('connect', () => console.log('Socket.io connected'));
-    socket.on('connect_error', (error) => console.error('Socket.io connection error:', error));
+    socket.on('connect', () => {
+      console.log('Socket.io connected');
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Socket.io connection error:', error);
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('Socket.io disconnected:', reason);
+      // Försök reconnecta
+      if (reason === 'io server disconnect') {
+        socket.connect();
+      }
+    });
 
     socket.on('position-update', (newPos) => {
+      console.log('Position update received:', newPos);
       setPositions(prev => [...prev, newPos]);
       setSelectedPoint(newPos);
     });
 
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   const polylineCoords = positions.map(p => [p.lat, p.lng]);
