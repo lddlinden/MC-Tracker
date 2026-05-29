@@ -2,6 +2,7 @@ const mqtt = require('mqtt');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const crypto = require('crypto');
 // Use global fetch if available (Node 18+). Otherwise dynamically import node-fetch.
 let fetcher;
 if (typeof fetch === 'function') {
@@ -93,9 +94,50 @@ const authenticate = (req, res, next) => {
 };
 
 // In-memory state för att spåra aktiva händelser per enhet och undvika dubbla aviseringar
-const deviceEventStates = {}; // Format: { 'topic': { '247': 0, '248': 0 } }
+const deviceEventStates = {}; // Format: { 'topic': { crash: 0, towing: 0 } }
+const pendingCommandResponses = new Map();
+const COMMAND_TOPIC = process.env.MQTT_COMMAND_TOPIC || 'teltonika/fmc880/commands';
+const COMMAND_RESPONSE_TIMEOUT_MS = parseInt(process.env.COMMAND_RESPONSE_TIMEOUT_MS, 10) || 10000;
 
-const sendNotification = async (eventType, topic, reportedData, fullPayload) => {
+const createCorrelationId = () => {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `cid-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+};
+
+const waitForCommandResponse = (correlationId) => new Promise((resolve) => {
+  const timeout = setTimeout(() => {
+    pendingCommandResponses.delete(correlationId);
+    resolve(undefined);
+  }, COMMAND_RESPONSE_TIMEOUT_MS);
+
+  pendingCommandResponses.set(correlationId, {
+    resolve: (url) => {
+      clearTimeout(timeout);
+      pendingCommandResponses.delete(correlationId);
+      resolve(url);
+    }
+  });
+});
+
+const requestGgpsUrl = async () => {
+  const correlationId = createCorrelationId();
+  const commandPayload = { CMD: 'ggps', correlationId };
+
+  return new Promise((resolve) => {
+    const waitPromise = waitForCommandResponse(correlationId);
+    mqttClient.publish(COMMAND_TOPIC, JSON.stringify(commandPayload), { qos: 0 }, (err) => {
+      if (err) {
+        console.error('[MQTT] Misslyckades skicka ggps-kommando:', err.message);
+        resolve(undefined);
+        return;
+      }
+      console.log(`[MQTT] Skickade ggps-kommando till ${COMMAND_TOPIC} med correlationId=${correlationId}`);
+    });
+    waitPromise.then(resolve);
+  });
+};
+
+const sendNotification = async (eventType, topic, reportedData, fullPayload, url) => {
   const HA_TOWING = process.env.HOME_ASSISTANT_WEBHOOK_TOWING;
   const HA_CRASH = process.env.HOME_ASSISTANT_WEBHOOK_CRASH;
   const HOME_ASSISTANT_WEBHOOK_URL = process.env.HOME_ASSISTANT_WEBHOOK_URL; // fallback for backward compatibility
@@ -123,6 +165,7 @@ const sendNotification = async (eventType, topic, reportedData, fullPayload) => 
             latitude: lat,
             longitude: lng,
             message: message,
+            url: url || null,
             reported: reportedData,
             full_payload: fullPayload
           }
@@ -168,8 +211,8 @@ mqttClient.on('reconnect', () => {
 });
 
 mqttClient.on('connect', () => {
-  mqttClient.subscribe('teltonika/fmc880');
-  console.log('[MQTT] Ansluten! Prenumererar på: teltonika/fmc880');
+  mqttClient.subscribe('teltonika/fmc880/#');
+  console.log('[MQTT] Ansluten! Prenumererar på: teltonika/fmc880/#');
 });
 
 mqttClient.on('message', async (topic, message) => {
@@ -178,6 +221,15 @@ mqttClient.on('message', async (topic, message) => {
 
   try {
     const data = JSON.parse(rawPayload);
+    const correlationId = data?.correlationId || data?.correlator || data?.id;
+    const responseUrl = data?.url || data?.URL || data?.response?.url;
+    if (correlationId && responseUrl) {
+      const pending = pendingCommandResponses.get(correlationId);
+      if (pending) {
+        pending.resolve(responseUrl);
+        console.log(`[MQTT] Mottog URL-svar för correlationId=${correlationId}: ${responseUrl}`);
+      }
+    }
 
     // Försök hitta positionen i JSON-strukturen
     // Vi kollar både efter 'state.reported' (AWS format) och direkt i roten (Teltonika/Generic format)
@@ -211,7 +263,8 @@ mqttClient.on('message', async (topic, message) => {
     // Kontrollera Crash Detection (evt 247)
     if (crashDetected && deviceEventStates[topic].crash !== 1) {
       console.log(`[Event] Crash Detected för ${topic}!`);
-      sendNotification('crash', topic, reported, data);
+      const responseUrl = await requestGgpsUrl();
+      await sendNotification('crash', topic, reported, data, responseUrl);
       deviceEventStates[topic].crash = 1; // Uppdatera tillstånd
     } else if (!crashDetected && deviceEventStates[topic].crash === 1) {
       deviceEventStates[topic].crash = 0; // Återställ tillstånd när händelsen upphör
@@ -220,7 +273,8 @@ mqttClient.on('message', async (topic, message) => {
     // Kontrollera Towing Detection (evt 240)
     if (towingDetected && deviceEventStates[topic].towing !== 1) {
       console.log(`[Event] Towing Detected för ${topic}!`);
-      sendNotification('towing', topic, reported, data);
+      const responseUrl = await requestGgpsUrl();
+      await sendNotification('towing', topic, reported, data, responseUrl);
       deviceEventStates[topic].towing = 1; // Uppdatera tillstånd
     } else if (!towingDetected && deviceEventStates[topic].towing === 1) {
       deviceEventStates[topic].towing = 0; // Återställ tillstånd när händelsen upphör
