@@ -89,38 +89,46 @@ const authenticate = (req, res, next) => {
 // In-memory state för att spåra aktiva händelser per enhet och undvika dubbla aviseringar
 const deviceEventStates = {}; // Format: { 'topic': { '247': 0, '248': 0 } }
 
-const sendNotification = async (eventType, topic, reportedData) => {
-  const HOME_ASSISTANT_WEBHOOK_URL = process.env.HOME_ASSISTANT_WEBHOOK_URL;
+const sendNotification = async (eventType, topic, reportedData, fullPayload) => {
+  const HA_TOWING = process.env.HOME_ASSISTANT_WEBHOOK_TOWING;
+  const HA_CRASH = process.env.HOME_ASSISTANT_WEBHOOK_CRASH;
+  const HOME_ASSISTANT_WEBHOOK_URL = process.env.HOME_ASSISTANT_WEBHOOK_URL; // fallback for backward compatibility
   const TEXTBEE_API_KEY = process.env.TEXTBEE_API_KEY;
   const TEXTBEE_CHANNEL_ID = process.env.TEXTBEE_CHANNEL_ID;
 
-  const message = `MC Tracker Alert: ${eventType.toUpperCase()} detected on ${topic} at ${new Date(reportedData.ts).toLocaleString()}! Lat: ${reportedData.latlng.split(',')[0]}, Lng: ${reportedData.latlng.split(',')[1]}`;
+  const ts = reportedData?.ts || fullPayload?.ts || new Date().toISOString();
+  const latlng = reportedData?.latlng || fullPayload?.latlng || '';
+  const [lat, lng] = latlng ? latlng.split(',') : ['', ''];
+  const message = `MC Tracker Alert: ${eventType.toUpperCase()} detected on ${topic} at ${new Date(ts).toLocaleString()}! Lat: ${lat}, Lng: ${lng}`;
 
-  // Home Assistant Webhook
-  if (HOME_ASSISTANT_WEBHOOK_URL) {
+  // Choose the correct Home Assistant webhook URL per event type
+  const webhookUrl = eventType === 'towing' ? HA_TOWING : (eventType === 'crash' ? HA_CRASH : HOME_ASSISTANT_WEBHOOK_URL);
+  if (webhookUrl) {
     try {
-      await fetch(HOME_ASSISTANT_WEBHOOK_URL, {
+      await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          event_type: `mc_tracker_${eventType}_alert`,
+          event_type: `mc_tracker_${eventType}`,
           data: {
             topic: topic,
-            event: eventType,
-            timestamp: reportedData.ts,
-            latitude: reportedData.latlng.split(',')[0],
-            longitude: reportedData.latlng.split(',')[1],
-            message: message
+            detected_event: eventType,
+            timestamp: ts,
+            latitude: lat,
+            longitude: lng,
+            message: message,
+            reported: reportedData,
+            full_payload: fullPayload
           }
         })
       });
-      console.log(`[Notification] Home Assistant webhook skickad för ${eventType}.`);
+      console.log(`[Notification] Home Assistant webhook skickad för ${eventType}. url=${webhookUrl}`);
     } catch (error) {
       console.error(`[Notification] Misslyckades skicka Home Assistant webhook för ${eventType}:`, error.message);
     }
   }
 
-  // Textbee.dev Notification
+  // Textbee.dev Notification (unchanged)
   if (TEXTBEE_API_KEY && TEXTBEE_CHANNEL_ID) {
     try {
       await fetch(`https://textbee.dev/api/v1/message`, {
@@ -185,30 +193,31 @@ mqttClient.on('message', async (topic, message) => {
     }
 
     // --- Händelsedetektering för aviseringar ---
-    const crashDetection = reported['247']; // Antar att 247 är I/O-ID för Crash Detection
-    const towingDetection = reported['248']; // Antar att 248 är I/O-ID för Towing Detection
+    // Some devices signal events via I/O keys (e.g. '247' or '240'), others via 'evt' code.
+    const crashDetected = (reported['247'] === 1) || (reported.evt === 247) || (reported.evt === '247');
+    const towingDetected = (reported['240'] === 1) || (reported.evt === 240) || (reported.evt === '240');
 
     // Initiera tillstånd för denna topic om det inte finns
     if (!deviceEventStates[topic]) {
-      deviceEventStates[topic] = { '247': 0, '248': 0 };
+      deviceEventStates[topic] = { crash: 0, towing: 0 };
     }
 
-    // Kontrollera Crash Detection
-    if (crashDetection === 1 && deviceEventStates[topic]['247'] !== 1) {
+    // Kontrollera Crash Detection (evt 247)
+    if (crashDetected && deviceEventStates[topic].crash !== 1) {
       console.log(`[Event] Crash Detected för ${topic}!`);
-      sendNotification('crash', topic, reported);
-      deviceEventStates[topic]['247'] = 1; // Uppdatera tillstånd
-    } else if (crashDetection === 0 && deviceEventStates[topic]['247'] === 1) {
-      deviceEventStates[topic]['247'] = 0; // Återställ tillstånd när händelsen upphör
+      sendNotification('crash', topic, reported, data);
+      deviceEventStates[topic].crash = 1; // Uppdatera tillstånd
+    } else if (!crashDetected && deviceEventStates[topic].crash === 1) {
+      deviceEventStates[topic].crash = 0; // Återställ tillstånd när händelsen upphör
     }
 
-    // Kontrollera Towing Detection
-    if (towingDetection === 1 && deviceEventStates[topic]['248'] !== 1) {
+    // Kontrollera Towing Detection (evt 240)
+    if (towingDetected && deviceEventStates[topic].towing !== 1) {
       console.log(`[Event] Towing Detected för ${topic}!`);
-      sendNotification('towing', topic, reported);
-      deviceEventStates[topic]['248'] = 1; // Uppdatera tillstånd
-    } else if (towingDetection === 0 && deviceEventStates[topic]['248'] === 1) {
-      deviceEventStates[topic]['248'] = 0; // Återställ tillstånd när händelsen upphör
+      sendNotification('towing', topic, reported, data);
+      deviceEventStates[topic].towing = 1; // Uppdatera tillstånd
+    } else if (!towingDetected && deviceEventStates[topic].towing === 1) {
+      deviceEventStates[topic].towing = 0; // Återställ tillstånd när händelsen upphör
     }
     // --- Slut på händelsedetektering ---
 
