@@ -189,24 +189,26 @@ const sendNotification = async (eventType, topic, reportedData, fullPayload, url
   // Choose the correct Home Assistant webhook URL per event type
   const webhookUrl = eventType === 'towing' ? HA_TOWING : (eventType === 'crash' ? HA_CRASH : HOME_ASSISTANT_WEBHOOK_URL);
   if (webhookUrl) {
+    const notificationPayload = {
+      event_type: `mc_tracker_${eventType}`,
+      data: {
+        topic: topic,
+        detected_event: eventType,
+        timestamp: ts,
+        latitude: lat,
+        longitude: lng,
+        message: message,
+        url: finalUrl,
+        reported: reportedData,
+        full_payload: fullPayload
+      }
+    };
     try {
+      console.log(`[Notification] Skickar payload till HA:`, JSON.stringify(notificationPayload, null, 2));
       await fetcher(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event_type: `mc_tracker_${eventType}`,
-          data: {
-            topic: topic,
-            detected_event: eventType,
-            timestamp: ts,
-            latitude: lat,
-            longitude: lng,
-            message: message,
-            url: finalUrl,
-            reported: reportedData,
-            full_payload: fullPayload
-          }
-        })
+        body: JSON.stringify(notificationPayload)
       });
       console.log(`[Notification] Home Assistant webhook skickad för ${eventType}. url=${webhookUrl}`);
     } catch (error) {
@@ -269,6 +271,11 @@ mqttClient.on('message', async (topic, message) => {
         // Response-only MQTT message; do not parse position data.
         return;
       }
+    }
+
+    // Ignorera meddelanden på command-topicen om de inte innehöll en URL (t.ex. våra egna echos)
+    if (topic.includes('/commands')) {
+      return;
     }
 
     // Försök hitta positionen i JSON-strukturen
