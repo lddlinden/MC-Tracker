@@ -119,9 +119,42 @@ const waitForCommandResponse = (correlationId) => new Promise((resolve) => {
   });
 });
 
+const parseUrlFromResponse = (data) => {
+  if (!data) return undefined;
+  if (typeof data.url === 'string') return data.url;
+  if (typeof data.URL === 'string') return data.URL;
+  if (data.response?.url) return data.response.url;
+  const rsp = data.RSP || data.rsp || data.Response;
+  if (typeof rsp === 'string') {
+    const match = rsp.match(/https?:\/\/[^"]+?(?=(?:\s|$|speed:|sp:|S:|C:))/i);
+    return match?.[0];
+  }
+  return undefined;
+};
+
+const resolvePendingResponse = (responseUrl, correlationId) => {
+  if (!responseUrl) return false;
+  if (correlationId) {
+    const pending = pendingCommandResponses.get(correlationId);
+    if (pending) {
+      pending.resolve(responseUrl);
+      return true;
+    }
+  }
+
+  const firstPending = pendingCommandResponses.values().next().value;
+  if (firstPending) {
+    firstPending.resolve(responseUrl);
+    return true;
+  }
+
+  return false;
+};
+
 const requestGgpsUrl = async () => {
   const correlationId = createCorrelationId();
-  const commandPayload = { CMD: 'ggps', correlationId };
+  // Vi skickar CMD: 'ggps' men behåller correlationId för intern matchning om svar kommer
+  const commandPayload = { CMD: 'ggps', id: correlationId };
 
   return new Promise((resolve) => {
     const waitPromise = waitForCommandResponse(correlationId);
@@ -131,7 +164,7 @@ const requestGgpsUrl = async () => {
         resolve(undefined);
         return;
       }
-      console.log(`[MQTT] Skickade ggps-kommando till ${COMMAND_TOPIC} med correlationId=${correlationId}`);
+      console.log(`[MQTT] Skickade ggps till ${COMMAND_TOPIC} (ID: ${correlationId})`);
     });
     waitPromise.then(resolve);
   });
@@ -147,7 +180,11 @@ const sendNotification = async (eventType, topic, reportedData, fullPayload, url
   const ts = reportedData?.ts || fullPayload?.ts || new Date().toISOString();
   const latlng = reportedData?.latlng || fullPayload?.latlng || '';
   const [lat, lng] = latlng ? latlng.split(',') : ['', ''];
-  const message = `MC Tracker Alert: ${eventType.toUpperCase()} detected on ${topic} at ${new Date(ts).toLocaleString()}! Lat: ${lat}, Lng: ${lng}`;
+
+  // Använd Google Maps-länken från trackern om den finns, annars skapa en baserat på koordinaterna
+  const finalUrl = url || (lat && lng ? `https://www.google.com/maps?q=${lat},${lng}` : null);
+
+  const message = `MC Tracker Alert: ${eventType.toUpperCase()} detekterad på ${topic} kl ${new Date(ts).toLocaleString('sv-SE')}!`;
 
   // Choose the correct Home Assistant webhook URL per event type
   const webhookUrl = eventType === 'towing' ? HA_TOWING : (eventType === 'crash' ? HA_CRASH : HOME_ASSISTANT_WEBHOOK_URL);
@@ -165,7 +202,7 @@ const sendNotification = async (eventType, topic, reportedData, fullPayload, url
             latitude: lat,
             longitude: lng,
             message: message,
-            url: url || null,
+            url: finalUrl,
             reported: reportedData,
             full_payload: fullPayload
           }
@@ -211,7 +248,9 @@ mqttClient.on('reconnect', () => {
 });
 
 mqttClient.on('connect', () => {
+  // Vi prenumererar på båda varianterna (med/utan ledande slash) för att vara säkra
   mqttClient.subscribe('teltonika/fmc880/#');
+  mqttClient.subscribe('/teltonika/fmc880/#');
   console.log('[MQTT] Ansluten! Prenumererar på: teltonika/fmc880/#');
 });
 
@@ -222,12 +261,13 @@ mqttClient.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(rawPayload);
     const correlationId = data?.correlationId || data?.correlator || data?.id;
-    const responseUrl = data?.url || data?.URL || data?.response?.url;
-    if (correlationId && responseUrl) {
-      const pending = pendingCommandResponses.get(correlationId);
-      if (pending) {
-        pending.resolve(responseUrl);
-        console.log(`[MQTT] Mottog URL-svar för correlationId=${correlationId}: ${responseUrl}`);
+    const responseUrl = parseUrlFromResponse(data);
+    if (responseUrl) {
+      const resolved = resolvePendingResponse(responseUrl, correlationId);
+      if (resolved) {
+        console.log(`[MQTT] Mottog URL-svar för correlationId=${correlationId || 'unknown'}: ${responseUrl}`);
+        // Response-only MQTT message; do not parse position data.
+        return;
       }
     }
 
@@ -251,9 +291,10 @@ mqttClient.on('message', async (topic, message) => {
     }
 
     // --- Händelsedetektering för aviseringar ---
-    // Some devices signal events via I/O keys (e.g. '247' or '240'), others via 'evt' code.
-    const crashDetected = (reported['247'] === 1) || (reported.evt === 247) || (reported.evt === '247');
-    const towingDetected = (reported['240'] === 1) || (reported.evt === 240) || (reported.evt === '240');
+    // FMC880/FMBXXX: Towing (246) and Crash Detection (247).
+    // Crash: 1-6 are valid crash events (7-8 are fake/potholes).
+    const crashDetected = (reported['247'] >= 1 && reported['247'] <= 6);
+    const towingDetected = (reported['246'] === 1);
 
     // Initiera tillstånd för denna topic om det inte finns
     if (!deviceEventStates[topic]) {
@@ -270,7 +311,7 @@ mqttClient.on('message', async (topic, message) => {
       deviceEventStates[topic].crash = 0; // Återställ tillstånd när händelsen upphör
     }
 
-    // Kontrollera Towing Detection (evt 240)
+    // Kontrollera Towing Detection (ID 246)
     if (towingDetected && deviceEventStates[topic].towing !== 1) {
       console.log(`[Event] Towing Detected för ${topic}!`);
       const responseUrl = await requestGgpsUrl();
@@ -282,6 +323,13 @@ mqttClient.on('message', async (topic, message) => {
     // --- Slut på händelsedetektering ---
 
     try {
+      // Skydd mot 0,0 koordinater (nollmeridianen/ekvatorn) vid bristande GPS-fix.
+      // Detta förhindrar felaktig statistik och linjer som dras till havet utanför Afrika.
+      if (lat === 0 && lng === 0) {
+        console.log(`[Parser] Ignorerar position (0,0) för ${topic} - väntar på giltig GPS-fix.`);
+        return;
+      }
+
       await pool.query(
         'INSERT INTO positions (ts, lat, lng, raw_data) VALUES ($1, $2, $3, $4)',
         [tsDate, lat, lng, data]

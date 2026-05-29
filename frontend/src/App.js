@@ -41,13 +41,15 @@ function App() {
   const [startDate, setStartDate] = useState(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
-  const [visibleFields, setVisibleFields] = useState(['66', '67', '239', '240', 'sp']);
+  const [visibleFields, setVisibleFields] = useState(['66', '67', '239', '246', 'sp']);
 
   const fieldLabels = {
     '66': 'MC Batteri (V)',
     '67': 'Internt Batteri (V)',
     '239': 'Tändning',
-    '240': 'Rörelse',
+    '246': 'Bogsering',
+    '247': 'Krasch-status',
+    '252': 'Batteri bortkopplat',
     'sp': 'Hastighet (km/h)',
     'sat': 'Satelliter',
     'alt': 'Höjd (m)',
@@ -56,7 +58,7 @@ function App() {
 
   const formatValue = (key, val) => {
     if (key === '66' || key === '67') return (val / 1000).toFixed(2) + ' V';
-    if (key === '239' || key === '240') return val === 1 ? 'JA' : 'NEJ';
+    if (key === '239' || key === '246' || key === '252') return val === 1 ? 'JA' : 'NEJ';
     return val;
   };
 
