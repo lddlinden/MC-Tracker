@@ -204,7 +204,7 @@ const sendNotification = async (eventType, topic, reportedData, fullPayload, url
       }
     };
     try {
-      console.log(`[Notification] Skickar payload till HA:`, JSON.stringify(notificationPayload, null, 2));
+      console.log(`[Notification] Skickar payload till HA (${eventType}):`, JSON.stringify(notificationPayload, null, 2));
       await fetcher(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -273,7 +273,7 @@ mqttClient.on('message', async (topic, message) => {
       }
     }
 
-    // Ignorera meddelanden på command-topicen om de inte innehöll en URL (t.ex. våra egna echos)
+    // Ignorera meddelanden på command-topicen för att undvika att tolka ekon av egna kommandon
     if (topic.includes('/commands')) {
       return;
     }
@@ -335,6 +335,12 @@ mqttClient.on('message', async (topic, message) => {
       if (lat === 0 && lng === 0) {
         console.log(`[Parser] Ignorerar position (0,0) för ${topic} - väntar på giltig GPS-fix.`);
         return;
+      }
+
+      // Förhindra dubbletter: Kolla om senaste sparade punkt för denna enhet har samma timestamp
+      const lastPos = await pool.query('SELECT ts FROM positions ORDER BY ts DESC LIMIT 1');
+      if (lastPos.rows.length > 0 && new Date(lastPos.rows[0].ts).getTime() === tsDate.getTime()) {
+        return; // Hoppa över om vi redan har denna tidpunkt
       }
 
       await pool.query(
