@@ -70,7 +70,7 @@ function App() {
     return (
       <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#1a1a2e' }}>
         <form onSubmit={handleLogin} style={{ background: '#fff', padding: '40px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          <h2>MC-NAV Login</h2>
+          <h2>MC-Tracker Login</h2>
           <input name="user" placeholder="Användarnamn" style={{ padding: '10px' }} />
           <input name="pass" type="password" placeholder="Lösenord" style={{ padding: '10px' }} />
           <button type="submit" style={{ padding: '10px', background: '#0f3460', color: '#fff', border: 'none', cursor: 'pointer' }}>Logga in</button>
@@ -145,7 +145,7 @@ function App() {
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'Inter, system-ui, sans-serif', backgroundColor: '#f4f4f9' }}>
       {/* Sidebar för statistik och JSON-data */}
       <div style={{ width: '400px', backgroundColor: '#1a1a2e', color: '#fff', padding: '20px', overflowY: 'auto', boxShadow: '4px 0 10px rgba(0,0,0,0.1)', zIndex: 1000 }}>
-        <h1 style={{ fontSize: '1.5rem', marginBottom: '20px', borderBottom: '1px solid #30304d', paddingBottom: '10px' }}>🏍️ MC-NAV Dashboard</h1>
+        <h1 style={{ fontSize: '1.5rem', marginBottom: '20px', borderBottom: '1px solid #30304d', paddingBottom: '10px' }}>MC-Tracker Dashboard</h1>
         
         {/* Statistik-kort */}
         <div style={{ display: 'grid', gap: '15px', marginBottom: '30px' }}>
